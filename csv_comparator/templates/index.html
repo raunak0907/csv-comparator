@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>CSV Comparator | Data Insight Portal</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+  <style>
+    body {
+      background: #121212;
+      color: #f0f0f0;
+      padding: 20px;
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+    }
+    h2, h5, label, .form-label {
+      color: #0ff !important;
+      font-weight: 600;
+    }
+    .text-description {
+      color: #ccc;
+      font-weight: 500;
+      font-size: 1rem;
+    }
+    .card, .result-box {
+      background: #1e1e1e;
+      border: 1px solid #333;
+      border-radius: 12px;
+      box-shadow: 0 0 15px rgba(0,255,255,.1);
+      padding: 15px;
+      margin-bottom: 20px;
+      line-height: 1.6;
+    }
+    .card h5 {
+      border-bottom: 1px solid #333;
+      padding-bottom: 8px;
+      margin-bottom: 15px;
+      background: rgba(0, 255, 255, 0.05);
+      padding: 10px 12px;
+      border-left: 4px solid #0ff;
+      border-radius: 6px;
+    }
+    .form-control, select.form-control {
+      background: #292929;
+      border: 1px solid #555;
+      color: #fff;
+      margin-bottom: 10px;
+    }
+    .form-control:focus {
+      box-shadow: 0 0 8px cyan;
+      border-color: cyan;
+    }
+    .btn-glow {
+      border: none;
+      font-weight: 600;
+      color: black;
+      background: linear-gradient(145deg, #00e6e6, #0ff);
+      box-shadow: 0 0 10px #0ff;
+      transition: .3s ease;
+    }
+    .btn-glow:hover {
+      background: linear-gradient(145deg, #00caca, #0cc);
+      transform: scale(1.03);
+    }
+    .nav-tabs .nav-link {
+      color: #ccc;
+      font-weight: 500;
+      transition: .3s ease-in-out;
+    }
+    .nav-tabs .nav-link.active {
+      background: #0ff;
+      color: #000;
+      box-shadow: 0 0 8px #0ff;
+      transform: scale(1.05);
+    }
+    .tab-pane {
+      opacity: 0;
+      transition: opacity .3s ease-in-out;
+    }
+    .tab-pane.show.active {
+      opacity: 1;
+    }
+    .pulse { animation: pulseAnim .6s ease-in-out; }
+    @keyframes pulseAnim { 50% { transform: scale(1.1); } }
+
+    .result-box ul {
+      padding-left: 20px;
+      margin-top: 10px;
+    }
+    .result-box li {
+      margin-bottom: 8px;
+      line-height: 1.6;
+      border-bottom: 1px dashed #444;
+      padding-bottom: 5px;
+    }
+
+    #backToTopBtn, #scrollProgress, #stickyExportBar {
+      position: fixed;
+      z-index: 1000;
+    }
+    #backToTopBtn {
+      bottom: 30px;
+      right: 30px;
+      display: none;
+    }
+    #scrollProgress {
+      bottom: 30px;
+      left: 30px;
+      width: 50px;
+      height: 50px;
+      background: conic-gradient(#0ff 0%, #444 0%);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: black;
+      box-shadow: 0 0 12px #0ff;
+    }
+    #stickyExportBar {
+      bottom: 30px;
+      right: 100px;
+      display: flex;
+      gap: 10px;
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="text-center mb-4">
+    <h2><i class="fa-solid fa-code-compare text-info"></i> CSV Comparator</h2>
+    <p class="text-description">Upload Master and Slave CSV files to compare differences and new joiners.</p>
+  </div>
+
+  <div class="card p-4 mb-4">
+    <form method="POST" enctype="multipart/form-data" onsubmit="showSpinner()">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label"><i class="fa-solid fa-database"></i> Master CSV:</label>
+          <input type="file" name="master" class="form-control" required>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label"><i class="fa-solid fa-file-import"></i> Slave CSV:</label>
+          <input type="file" name="slave" class="form-control" required>
+        </div>
+      </div>
+      <div class="mt-4 text-end">
+        <button type="submit" class="btn btn-info btn-glow"><i class="fa-solid fa-magnifying-glass-chart"></i> Compare Files</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="loadingSpinner" class="text-center my-4" style="display:none;">
+    <div class="spinner-border text-info" style="width:3rem;height:3rem"></div>
+    <p class="text-info mt-2">Comparing files, please wait...</p>
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+      <div class="alert alert-{{ category }} alert-dismissible fade show">{{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    {% endfor %}
+  {% endwith %}
+
+  {% if diff or new %}
+    <div class="text-end text-muted mb-3"><i class="fa-regular fa-clock"></i> Compared on: {{ timestamp }}</div>
+
+    <div class="card p-3 mb-4">
+      <h5><i class="fa-solid fa-envelope"></i> Email Report</h5>
+      <form method="POST" action="/send_email">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-5">
+            <label class="form-label"><i class="fa-solid fa-user"></i> Email:</label>
+            <input type="email" class="form-control" name="recipient" placeholder="Enter recipient email" required>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label"><i class="fa-solid fa-file"></i> Report Type:</label>
+            <select class="form-control" name="report_type" required>
+              <option value="diff">Differences Report</option>
+              <option value="new">New Joinees Report</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <button type="submit" class="btn btn-warning btn-glow w-100"><i class="fa-solid fa-paper-plane"></i> Send Email</button>
+          </div>
+        </div>
+      </form>
+    </div>
+
+    <ul class="nav nav-tabs sticky-top sticky-top-nav bg-dark rounded p-2">
+      <li class="nav-item">
+        <a class="nav-link active pulse" data-bs-toggle="tab" href="#diffTab"><i class="fa-solid fa-circle-exclamation text-warning"></i> Differences ({{ diff|length }})</a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link" data-bs-toggle="tab" href="#newTab"><i class="fa-solid fa-user-plus text-info"></i> New Joinees ({{ new|length }})</a>
+      </li>
+    </ul>
+
+    <input type="text" class="form-control my-3" id="searchInput" placeholder="Search Employee ID, Field or Value...">
+
+    <div class="tab-content mt-3">
+      <div class="tab-pane fade show active" id="diffTab">
+        {% for group in diff %}
+          <div class="result-box searchable-block">
+            <h5><i class="fa-solid fa-id-card-clip"></i> Employee ID: {{ group.Employee }}</h5>
+            <ul>
+              {% for c in group.Changes %}
+                <li><i class="fa-solid fa-angles-right text-danger"></i> <strong>{{ c.Field }}</strong>: <span style="color:#ffc107">{{ c.Old }}</span> <i class="fa-solid fa-arrow-right text-warning"></i> <span style="color:#0ff">{{ c.New }}</span></li>
+              {% endfor %}
+            </ul>
+          </div>
+        {% endfor %}
+      </div>
+      <div class="tab-pane fade" id="newTab">
+        {% for group in new %}
+          <div class="result-box searchable-block">
+            <h5><i class="fa-solid fa-user-plus"></i> New Employee: {{ group.Employee }}</h5>
+            <ul>
+              {% for c in group.Changes %}
+                <li><i class="fa-solid fa-plus text-success"></i> <strong>{{ c.Field }}</strong>: <span style="color:#0ff">{{ c.New }}</span></li>
+              {% endfor %}
+            </ul>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+</div>
+
+<button onclick="scrollToTop()" id="backToTopBtn" class="btn btn-info btn-glow"><i class="fa-solid fa-arrow-up"></i></button>
+<div id="scrollProgress">0%</div>
+<div id="stickyExportBar">
+  <a href="/download_excel" class="btn btn-success btn-glow" title="Export Excel"><i class="fa-solid fa-file-excel"></i></a>
+  <a href="/download/diff" class="btn btn-warning btn-glow" title="PDF Differences"><i class="fa-solid fa-file-pdf"></i></a>
+  <a href="/download/new" class="btn btn-primary btn-glow" title="PDF New Joinees"><i class="fa-solid fa-user-plus"></i></a>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+  function showSpinner() {
+    document.getElementById('loadingSpinner').style.display = 'block';
+  }
+  window.addEventListener('scroll', () => {
+    const scrollTop = document.documentElement.scrollTop;
+    const scrollHeight = document.documentElement.scrollHeight - document.documentElement.clientHeight;
+    const percent = Math.round((scrollTop / scrollHeight) * 100);
+    const scrollElem = document.getElementById("scrollProgress");
+    scrollElem.innerText = `${percent}%`;
+    scrollElem.style.background = `conic-gradient(#0ff ${percent}%, #444 ${percent}%)`;
+    document.getElementById("backToTopBtn").style.display = percent > 15 ? "block" : "none";
+  });
+  function scrollToTop() {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => new bootstrap.Tooltip(el));
+  document.getElementById("searchInput").addEventListener("keyup", function () {
+    const filter = this.value.toLowerCase();
+    document.querySelectorAll(".searchable-block").forEach(block => {
+      block.style.display = block.textContent.toLowerCase().includes(filter) ? "" : "none";
+    });
+  });
+</script>
+</body>
+</html> 
